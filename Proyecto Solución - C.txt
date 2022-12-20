@@ -1,0 +1,128 @@
+NOTA: Todos los CREATE VIEW también pueden ser reemplazados por consultas anidadas
+
+Consulta 1
+--------------------------
+
+CREATE VIEW suma_heridos_muertos AS
+SELECT codigo_conflicto, SUM(num_heridos) + SUM(num_muertos) AS sum_her_muer
+FROM historial_de_conflictos
+GROUP BY codigo_conflicto;
+
+CREATE VIEW total_organizaciones AS
+SELECT COUNT(codigo_org) AS contar_organizaciones
+FROM historial_intervenciones_mediadoras
+WHERE codigo_org in (SELECT codigo
+                     FROM organizaciones
+                     WHERE codigo_orgdepen IS NULL)
+GROUP BY codigo_conflicto;
+
+INSERT INTO historial_intervenciones_armadas(codigo_gruparmado,codigo_conflicto,fecha_incorporacion)
+SELECT (SELECT codigo_gruparmado
+       FROM historial_intervenciones_armadas
+       WHERE codigo_conflicto = (SELECT codigo_conflicto
+                                 FROM historial_de_conflictos
+                                 GROUP BY codigo_conflicto
+                                 HAVING SUM(num_heridos) + SUM(num_muertos) = (SELECT MAX(sum_her_muer)
+                                                                               FROM suma_heridos_muertos))
+       AND fecha_incorporacion = (SELECT MIN(fecha_incorporacion)
+                                  FROM historial_intervenciones_armadas
+                                  WHERE codigo_conflicto = (SELECT codigo_conflicto
+                                                            FROM historial_de_conflictos
+                                                            GROUP BY codigo_conflicto
+                                                            HAVING SUM(num_heridos) + SUM(num_muertos) = (SELECT MAX(sum_her_muer)
+                                                                                                          FROM suma_heridos_muertos))
+                                  GROUP BY codigo_conflicto)),
+(SELECT codigo_conflicto
+FROM historial_intervenciones_mediadoras
+WHERE codigo_conflicto in (SELECT codigo 
+                           FROM conflictos
+                           WHERE causa = 'Religioso')
+GROUP BY codigo_conflicto, codigo_org
+HAVING COUNT(codigo_org) = (SELECT MAX(contar_organizaciones)
+                            FROM total_organizaciones)
+AND codigo_org in (SELECT codigo
+                     FROM organizaciones
+                     WHERE codigo_orgdepen IS NULL)),
+current_date;
+
+
+
+CONSULTA 2
+-------------------------
+UPDATE historial_de_conflictos SET num_heridos = num_heridos + 50, num_muertos = num_muertos + 12
+WHERE codigo_pais = (SELECT codigo
+                     FROM paises
+                     WHERE capital = 'Kabul')
+AND codigo_conflicto = (SELECT codigo_conflicto
+                        FROM historial_intervenciones_armadas
+                        WHERE codigo_gruparmado = (SELECT codigo
+                                                   FROM grupos_armados
+                                                   WHERE nombre = 'Ponchos Rojos'));
+
+
+CONSULTA 3
+-------------------------
+SELECT p.nombre AS "Paises", SUM(num_heridos) AS "Nº de heridos", SUM(num_muertos) AS "Nº de muertos"
+FROM historial_de_conflictos hc
+LEFT JOIN paises p
+ON hc.codigo_pais = p.codigo
+GROUP BY p.codigo;
+
+
+CONSULTA 4
+-------------------------
+SELECT codigo AS "Codigo", nombre AS "Conflicto"
+FROM conflictos
+WHERE codigo in (SELECT codigo_conflicto
+                 FROM historial_intervenciones_mediadoras
+                 WHERE extract(YEAR FROM fecha_incorporacion) = '2013'
+                 INTERSECT
+                 SELECT codigo_conflicto
+                 FROM historial_intervenciones_mediadoras
+                 WHERE extract(YEAR FROM fecha_incorporacion) = '2014'
+                 INTERSECT
+                 SELECT codigo_conflicto
+                 FROM historial_intervenciones_mediadoras
+                 WHERE extract(YEAR FROM fecha_incorporacion) = '2015');
+
+
+CONSULTA 5
+-------------------------
+CREATE VIEW conflictos_activos AS 
+SELECT MAX(DATEDIFF(current_date, fecha_incorporacion)) AS max_activo
+FROM historial_intervenciones_armadas his, conflictos con
+WHERE con.codigo = his.codigo_conflicto
+AND his.fecha_retirada IS NULL
+AND UPPER(con.causa) = 'RELIGIOSO'
+GROUP BY codigo_conflicto;
+
+
+SELECT nombre AS "Pais"
+FROM paises
+WHERE codigo in (SELECT codigo_pais
+                FROM historial_de_conflictos
+                WHERE codigo_conflicto in (SELECT codigo_conflicto
+                                          FROM historial_intervenciones_armadas
+                                          WHERE DATEDIFF(current_date, fecha_incorporacion) in (SELECT MAX(max_activo)
+                                                                                                    FROM conflictos_activos)));
+
+
+
+CONSULTA 6
+-------------------------
+CREATE VIEW maximas_fechas AS
+SELECT MAX(fecha_retirada) AS max_fecha 
+FROM historial_intervenciones_armadas
+GROUP BY codigo_conflicto;
+
+CREATE VIEW gruparmados_retirados AS
+SELECT gru.nombre AS "Grupo armado", his.fecha_retirada AS "Ultima fecha retirada"
+FROM historial_intervenciones_armadas his, grupos_armados gru
+WHERE his.codigo_gruparmado = gru.codigo
+AND fecha_retirada IS NOT NULL
+AND codigo_gruparmado NOT IN (SELECT codigo_gruparmado
+                              FROM historial_intervenciones_armadas
+                              WHERE fecha_retirada IS NULL)
+AND fecha_retirada in (SELECT MAX(max_fecha)
+                       FROM maximas_fechas)
+GROUP BY gru.nombre, fecha_retirada;

@@ -1,0 +1,5 @@
+La solución al apartado B puede verse conectando MySQL workbench al siguiente servidor:
+
+Server: iosqlde.onairnet.xyz
+User: sqlProjectViewer
+Pass: sqlProject22@#@
